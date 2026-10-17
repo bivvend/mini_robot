@@ -12,3 +12,5 @@ LLAMA_MODEL = Path(
 
 LLAMA_HOST = "127.0.0.1"
 LLAMA_PORT = 8080
+
+PERSONALITY = "personality_super_cute.json"
