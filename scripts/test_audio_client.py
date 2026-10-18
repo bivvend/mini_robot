@@ -17,11 +17,14 @@ async def main():
         device=args.device,
     )
 
-    print(f"\nRecognised: {result['text']}")
-    print(f"Processing time: {result['processing_seconds']}s")
+    print(f"\nYou: {result['text']}")
 
     if result.get("response"):
-        print(f"\nMini: {result['response']}")
+        print(f"Mini: {result['response']}")
+        print(f"Emotion: {result['emotion']}")
+        print(f"Gesture: {result['gesture']}")
+        print(f"Personality: {result['personality']}")
+        print(f"Total processing: {result['processing_seconds']:.2f}s")
 
 
 if __name__ == "__main__":
