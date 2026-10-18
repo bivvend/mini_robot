@@ -20,6 +20,9 @@ async def main():
     print(f"\nRecognised: {result['text']}")
     print(f"Processing time: {result['processing_seconds']}s")
 
+    if result.get("response"):
+        print(f"\nMini: {result['response']}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
