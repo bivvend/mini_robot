@@ -8,6 +8,30 @@ from websockets.asyncio.client import connect
 
 from mini_robot.audio.voice_activity import VoiceActivityDetector
 
+import io
+import wave
+from pathlib import Path
+
+import soundfile as sf
+
+from mini_robot.audio.text_to_speech import PiperTTS
+
+def speak(tts: PiperTTS, text: str):
+    """Generate speech with Piper and play it through the speakers."""
+
+    buffer = io.BytesIO()
+
+    with wave.open(buffer, "wb") as wav_file:
+        tts.voice.synthesize_wav(text, wav_file)
+
+    buffer.seek(0)
+
+    audio, sample_rate = sf.read(buffer, dtype="float32")
+
+    print(f"Speaking ({len(audio) / sample_rate:.1f}s)")
+
+    sd.play(audio, samplerate=sample_rate)
+    sd.wait()
 
 async def main():
     parser = argparse.ArgumentParser()
@@ -18,6 +42,18 @@ async def main():
 
     vad = VoiceActivityDetector()
     audio_queue = queue.Queue(maxsize=100)
+
+    project_root = Path(__file__).resolve().parent.parent
+
+    voice_path = (
+        project_root
+        / "data"
+        / "voices"
+        / "en_GB-alan-medium.onnx"
+    )
+
+    print("Loading Piper voice...")
+    tts = PiperTTS(voice_path)
 
     def audio_callback(indata, frames, time_info, status):
         if status:
@@ -69,16 +105,19 @@ async def main():
 
                 print(f"\nYou: {response.get('text', '')}")
 
-                if response.get("response"):
-                    print(f"Mini: {response['response']}")
+                reply = response.get("response", "")
+
+                if reply:
+                    print(f"Mini: {reply}")
                     print(
                         f"Emotion: {response.get('emotion')}, "
                         f"Gesture: {response.get('gesture')}"
                     )
 
-                print("\nListening...")
+                    # Run TTS without blocking the asyncio event loop
+                    await asyncio.to_thread(speak, tts, reply)
 
-                # Discard audio captured while the LLM was responding.
+                # Discard audio collected during response generation and playback
                 while not audio_queue.empty():
                     try:
                         audio_queue.get_nowait()
@@ -86,6 +125,7 @@ async def main():
                         break
 
                 vad.reset()
+                print("Listening...")
 
 
 if __name__ == "__main__":
