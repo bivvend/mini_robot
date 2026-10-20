@@ -17,6 +17,18 @@ class WhisperSTT:
         audio = np.frombuffer(pcm, dtype="<i2")
         audio = audio.astype(np.float32) / 32768.0
 
+        # Normalise to a peak amplitude of 0.8
+        peak = np.max(np.abs(audio)) if len(audio) else 0.0
+
+        if peak > 0.001:
+            gain = 0.8 / peak
+            audio *= gain
+
+            print(
+                f"Audio peak: {peak:.4f}, "
+                f"gain: {gain:.1f}x"
+            )
+
         segments, _ = self.model.transcribe(
             audio,
             language="en",
