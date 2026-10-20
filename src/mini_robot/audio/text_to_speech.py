@@ -1,8 +1,14 @@
 from pathlib import Path
 import wave
+import emoji
 
 from piper import PiperVoice
 
+
+def prepare_speech_text(text: str) -> str:
+    """Remove emojis from text before speech synthesis."""
+    text = emoji.replace_emoji(text, replace="")
+    return " ".join(text.split())
 
 class PiperTTS:
     def __init__(self, model_path: str | Path):

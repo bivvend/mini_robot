@@ -26,7 +26,7 @@ PERSONALITY_FILE = PROJECT_ROOT / "data" / config.PERSONALITY
 # ---------------------------------------------------------
 
 print("Loading Whisper...")
-stt = WhisperSTT(model_name="small.en")
+stt = WhisperSTT(model_name="base.en")
 
 print("Loading personality...")
 personality = RobotPersonality.model_validate_json(

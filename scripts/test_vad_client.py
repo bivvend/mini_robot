@@ -7,6 +7,7 @@ import sounddevice as sd
 from websockets.asyncio.client import connect
 
 from mini_robot.audio.voice_activity import VoiceActivityDetector
+from mini_robot.audio.text_to_speech import prepare_speech_text
 
 import io
 import wave
@@ -115,7 +116,10 @@ async def main():
                     )
 
                     # Run TTS without blocking the asyncio event loop
-                    await asyncio.to_thread(speak, tts, reply)
+                    speech_text = prepare_speech_text(reply)
+
+                    if speech_text:
+                        await asyncio.to_thread(speak, tts, speech_text)
 
                 # Discard audio collected during response generation and playback
                 while not audio_queue.empty():
