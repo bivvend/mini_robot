@@ -50,7 +50,7 @@ async def main():
         project_root
         / "data"
         / "voices"
-        / "models_en_US-seira-medium.onnx"
+        / "en_GB-alan-medium.onnx"
     )
 
     print("Loading Piper voice...")
