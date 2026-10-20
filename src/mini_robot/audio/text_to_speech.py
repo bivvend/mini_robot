@@ -8,6 +8,10 @@ from piper import PiperVoice
 def prepare_speech_text(text: str) -> str:
     """Remove emojis from text before speech synthesis."""
     text = emoji.replace_emoji(text, replace="")
+    #Also remove tilde
+    text = text.replace("~","")
+    text = text.replace("*","")
+    text = text.replace("#","")
     return " ".join(text.split())
 
 class PiperTTS:
