@@ -47,12 +47,19 @@ class SemanticMemory:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     type TEXT NOT NULL,
                     subject TEXT NOT NULL,
+                    user_id INTEGER,
                     content TEXT NOT NULL,
                     importance REAL NOT NULL DEFAULT 0.5,
                     source TEXT NOT NULL DEFAULT 'manual',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    last_accessed TEXT
+                    last_accessed TEXT,
+                    FOREIGN KEY(user_id) REFERENCES users(id),
+                    CHECK (
+                        (subject = 'user' AND user_id IS NOT NULL)
+                        OR
+                        (subject IN ('robot', 'world') AND user_id IS NULL)
+                    )
                 )
             """)
 
@@ -61,6 +68,12 @@ class SemanticMemory:
                 ON semantic_memories(importance DESC)
             """)
 
+            db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_semantic_user
+                ON semantic_memories(user_id, importance DESC)
+            """)
+
+    
     def add(
         self,
         type: MemoryType,
@@ -68,21 +81,50 @@ class SemanticMemory:
         content: str,
         importance: float = 0.5,
         source: str = "manual",
+        user_id: int | None = None,
     ) -> int:
 
-        if not 0.0 <= importance <= 1.0:
-            raise ValueError("Importance must be between 0 and 1.")
+        if not 0 <= importance <= 1:
+            raise ValueError("Importance must be between 0 and 1")
+
+        if subject == "user" and user_id is None:
+            raise ValueError("User memories require a user_id")
+
+        if subject != "user" and user_id is not None:
+            raise ValueError("Robot/world memories must be global")
 
         now = utc_now()
 
         with self._connect() as db:
-            cursor = db.execute(
+            existing = db.execute(
+                """
+                SELECT id
+                FROM semantic_memories
+                WHERE subject = ?
+                AND user_id IS ?
+                AND LOWER(TRIM(content)) = LOWER(TRIM(?))
+                LIMIT 1
+                """,
+                (subject, user_id, content),
+            ).fetchone()
+
+            if existing:
+                return existing["id"]
+
+            
+            return db.execute(
                 """
                 INSERT INTO semantic_memories (
-                    type, subject, content, importance,
-                    source, created_at, updated_at
+                    type,
+                    subject,
+                    content,
+                    importance,
+                    source,
+                    created_at,
+                    updated_at,
+                    user_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     type,
@@ -92,20 +134,30 @@ class SemanticMemory:
                     source,
                     now,
                     now,
+                    user_id,
                 ),
-            )
+            ).lastrowid
 
-            return cursor.lastrowid
 
     def get(
         self,
+        user_id: int | None = None,
         subject: MemorySubject | None = None,
         type: MemoryType | None = None,
         limit: int = 20,
     ) -> list[dict]:
 
-        query = "SELECT * FROM semantic_memories WHERE 1=1"
-        params = []
+        query = """
+            SELECT *
+            FROM semantic_memories
+            WHERE (
+                (subject = 'user' AND user_id = ?)
+                OR
+                (subject IN ('robot', 'world') AND user_id IS NULL)
+            )
+        """
+
+        params = [user_id]
 
         if subject is not None:
             query += " AND subject = ?"
@@ -119,6 +171,7 @@ class SemanticMemory:
             ORDER BY importance DESC, updated_at DESC
             LIMIT ?
         """
+
         params.append(limit)
 
         with self._connect() as db:

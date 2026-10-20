@@ -11,18 +11,23 @@ class ConversationManager:
         self,
         memory: ConversationMemory,
         conversation_id: int | None = None,
-
+        user_id: int | None = None,
     ):
         self.memory = memory
-
-        self.semantic_memory = SemanticMemory(
-                db_path=self.memory.db_path
-        )
 
         self.conversation_id = (
             conversation_id
             if conversation_id is not None
-            else self.memory.start_conversation()
+            else self.memory.start_conversation(user_id=user_id)
+        )
+
+        # Read the user associated with this conversation.
+        self.user_id = self.memory.get_conversation_user(
+            self.conversation_id
+        )
+
+        self.semantic_memory = SemanticMemory(
+            db_path=self.memory.db_path
         )
 
         self.context = ContextManager(

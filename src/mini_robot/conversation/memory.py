@@ -31,10 +31,21 @@ class ConversationMemory:
     def _create_tables(self):
         with self._connect() as db:
             db.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    created_at TEXT NOT NULL,
+                    last_seen TEXT
+                )
+            """)
+
+            db.execute("""
                 CREATE TABLE IF NOT EXISTS conversations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
                     started_at TEXT NOT NULL,
-                    ended_at TEXT
+                    ended_at TEXT,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
                 )
             """)
 
@@ -47,14 +58,9 @@ class ConversationMemory:
                     content TEXT NOT NULL,
                     emotion TEXT,
                     gesture TEXT,
-                    FOREIGN KEY (conversation_id)
+                    FOREIGN KEY(conversation_id)
                         REFERENCES conversations(id)
                 )
-            """)
-
-            db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_conversation
-                ON messages(conversation_id, id)
             """)
 
             db.execute("""
@@ -67,13 +73,25 @@ class ConversationMemory:
                 )
             """)
 
-    def start_conversation(self) -> int:
+            db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_messages_conversation
+                ON messages(conversation_id, id)
+            """)
+
+            db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_conversations_user
+                ON conversations(user_id)
+            """)
+
+    def start_conversation(self, user_id: int | None = None) -> int:
         with self._connect() as db:
-            cursor = db.execute(
-                "INSERT INTO conversations (started_at) VALUES (?)",
-                (utc_now(),),
-            )
-            return cursor.lastrowid
+            return db.execute(
+                """
+                INSERT INTO conversations (started_at, user_id)
+                VALUES (?, ?)
+                """,
+                (utc_now(), user_id),
+            ).lastrowid
 
     def end_conversation(self, conversation_id: int):
         with self._connect() as db:
@@ -85,6 +103,22 @@ class ConversationMemory:
                 """,
                 (utc_now(), conversation_id),
             )
+
+    def get_conversation_user(self, conversation_id: int) -> int | None:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT user_id
+                FROM conversations
+                WHERE id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+
+        if row is None:
+            raise ValueError(f"Unknown conversation: {conversation_id}")
+
+        return row["user_id"]
 
     def add_message(
         self,

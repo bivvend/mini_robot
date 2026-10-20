@@ -25,8 +25,14 @@ class ReflectionEngine:
             limit=20,
         )
 
+        user_id = self.conversation_memory.get_conversation_user(
+            conversation_id
+        )
+
         if not history:
             return None
+
+        
 
         last_message_id = history[-1]["id"]
 
@@ -40,7 +46,10 @@ class ReflectionEngine:
         if not history:
             return None
 
-        existing = self.semantic_memory.get(limit=30)
+        existing = self.semantic_memory.get(
+            user_id=user_id,
+            limit=30,
+        )
 
         conversation_text = "\n".join(
             f"{m['role']}: {m['content']}"
@@ -90,19 +99,28 @@ class ReflectionEngine:
         )
 
         for proposal in result.memories:
+            # Never attribute personal information to an unknown user.
+            if proposal.subject == "user" and user_id is None:
+                logger.info(
+                    "Skipping personal memory: user not identified"
+                )
+                continue
+
             memory_id = self.semantic_memory.add(
                 type=proposal.type,
                 subject=proposal.subject,
                 content=proposal.content,
                 importance=proposal.importance / 5.0,
                 source="reflection",
+                user_id=user_id if proposal.subject == "user" else None,
             )
 
             logger.info(
-                "NEW MEMORY #%d [%s/%s] importance=%d/5: %s",
+                "NEW MEMORY #%d [%s/%s] user_id=%s importance=%d/5: %s",
                 memory_id,
                 proposal.subject,
                 proposal.type,
+                user_id if proposal.subject == "user" else None,
                 proposal.importance,
                 proposal.content,
             )
