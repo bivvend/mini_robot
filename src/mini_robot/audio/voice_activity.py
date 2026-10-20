@@ -11,7 +11,7 @@ class VoiceActivityDetector:
     def __init__(
         self,
         threshold=0.5,
-        silence_ms=700,
+        silence_ms=1500,
         pre_speech_ms=300,
         max_speech_seconds=15,
     ):
