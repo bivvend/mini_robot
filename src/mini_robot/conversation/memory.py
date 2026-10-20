@@ -9,11 +9,17 @@ def utc_now():
 
 
 class ConversationMemory:
+    def __init__(self, db_path: str | Path | None = None):
+        project_root = Path(__file__).resolve().parents[3]
 
-    def __init__(self, db_path="data/memory.db"):
-        self.db_path = Path(db_path)
+        if db_path is None:
+            self.db_path = project_root / "data" / "memory.db"
+        else:
+            self.db_path = Path(db_path)
+            if not self.db_path.is_absolute():
+                self.db_path = project_root / self.db_path
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
         self._create_tables()
 
     def _connect(self):
@@ -49,6 +55,16 @@ class ConversationMemory:
             db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id, id)
+            """)
+
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS reflection_checkpoints (
+                    conversation_id INTEGER PRIMARY KEY,
+                    last_message_id INTEGER NOT NULL DEFAULT 0,
+                    reflected_at TEXT NOT NULL,
+                    FOREIGN KEY(conversation_id)
+                        REFERENCES conversations(id)
+                )
             """)
 
     def start_conversation(self) -> int:
@@ -127,3 +143,70 @@ class ConversationMemory:
             rows = db.execute(query, parameters).fetchall()
 
         return [dict(row) for row in reversed(rows)]
+
+    def get_reflection_checkpoint(self, conversation_id: int) -> int:
+        with self._connect() as db:
+            row = db.execute(
+                """
+                SELECT last_message_id
+                FROM reflection_checkpoints
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+
+        return row["last_message_id"] if row else 0
+
+
+    def set_reflection_checkpoint(
+        self,
+        conversation_id: int,
+        last_message_id: int,
+    ):
+        with self._connect() as db:
+            db.execute(
+                """
+                INSERT INTO reflection_checkpoints (
+                    conversation_id,
+                    last_message_id,
+                    reflected_at
+                )
+                VALUES (?, ?, ?)
+                ON CONFLICT(conversation_id)
+                DO UPDATE SET
+                    last_message_id = excluded.last_message_id,
+                    reflected_at = excluded.reflected_at
+                WHERE excluded.last_message_id >
+                    reflection_checkpoints.last_message_id
+                """,
+                (
+                    conversation_id,
+                    last_message_id,
+                    utc_now(),
+                ),
+            )
+
+
+    def get_unreviewed_messages(
+        self,
+        conversation_id: int,
+        limit: int = 20,
+    ) -> list[dict]:
+
+        checkpoint = self.get_reflection_checkpoint(conversation_id)
+
+        with self._connect() as db:
+            rows = db.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE conversation_id = ?
+                AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (conversation_id, checkpoint, limit),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+    
