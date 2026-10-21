@@ -4,6 +4,14 @@ from mini_robot.conversation.memory import ConversationMemory
 from mini_robot.conversation.semantic_memory import SemanticMemory
 from mini_robot.conversation.reflection_models import ReflectionResult
 import logging
+from mini_robot.personality.interests import (
+    RobotInterest,
+    RobotInterestStore,
+)
+from mini_robot.personality.interest_reflection import (
+    InterestReflectionResult,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +22,12 @@ class ReflectionEngine:
         llm: LLMClient,
         conversation_memory: ConversationMemory,
         semantic_memory: SemanticMemory,
+        interest_store: RobotInterestStore | None = None,
     ):
         self.llm = llm
         self.conversation_memory = conversation_memory
         self.semantic_memory = semantic_memory
+        self.interest_store = interest_store
 
     def reflect(self, conversation_id: int) -> ReflectionResult | None:
         history = self.conversation_memory.get_unreviewed_messages(
@@ -141,6 +151,10 @@ class ReflectionEngine:
             temperature=0.3,
         )
 
+        interest_result = self.reflect_interests(
+            conversation_text=conversation_text,
+        )
+
         for proposal in result.memories:
             # Never attribute personal information to an unknown user.
             if proposal.subject == "user" and user_id is None:
@@ -168,6 +182,16 @@ class ReflectionEngine:
                 proposal.content,
             )
 
+        if interest_result is not None:
+            self.apply_interest_reflection(interest_result)
+
+            logger.info(
+                "Interest reflection: %s (%d updates, %d new)",
+                interest_result.summary,
+                len(interest_result.updates),
+                len(interest_result.new_interests),
+            )
+
         self.conversation_memory.set_reflection_checkpoint(
             conversation_id,
             last_message_id,
@@ -179,3 +203,167 @@ class ReflectionEngine:
         )
 
         return result
+
+
+    def reflect_interests(
+        self,
+        conversation_text: str,
+    ) -> InterestReflectionResult | None:
+        """Propose changes to the robot's developing interests."""
+
+        if self.interest_store is None:
+            return None
+
+        interests = self.interest_store.get_all()
+
+        existing_topics = "\n".join(
+            f"- {i.topic}: "
+            f"enthusiasm={i.enthusiasm:.2f}, "
+            f"curiosity={i.curiosity:.2f}"
+            for i in interests
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": """
+                You are reviewing the developing interests of a small robot.
+
+                The robot has a stable core personality, but its interests
+                can evolve gradually through conversations.
+
+                Review the conversation and propose small changes to
+                the robot's interests.
+
+                RULES:
+
+                1. Interests belong to the ROBOT, not the human user.
+
+                2. Do not automatically copy the user's interests.
+
+                3. Only propose changes when the conversation gives
+                a meaningful reason for the robot to become more
+                or less interested in a topic.
+
+                4. Changes should be small, normally between
+                -0.05 and +0.05.
+
+                5. A new interest should be a broad, reusable topic,
+                not a fact about a particular person.
+
+                6. Never include names, private details, or personal
+                information in robot interests.
+
+                7. Do not create interests based solely on things
+                the assistant suggested or claimed.
+
+                8. Avoid duplicating existing interests under
+                different names.
+
+                9. If nothing meaningful has changed, return
+                empty updates and new_interests lists.
+
+                10. Prefer at most two updates and one new interest
+                    per reflection cycle.
+
+                11. The robot should not become enthusiastic about
+                    every topic it encounters.
+
+                12. Changes must not alter the robot's core values,
+                    identity, or behavioural principles.
+
+                Return a structured InterestReflectionResult.
+                """,
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"CURRENT ROBOT INTERESTS:\n"
+                    f"{existing_topics or '(none)'}\n\n"
+                    f"RECENT CONVERSATION:\n"
+                    f"{conversation_text}"
+                ),
+            },
+        ]
+
+        return self.llm.generate_structured(
+            messages=messages,
+            response_model=InterestReflectionResult,
+            max_tokens=2000,
+            temperature=0.2,
+        )
+
+
+
+    def apply_interest_reflection(
+        self,
+        result: InterestReflectionResult | None,
+    ):
+        if result is None or self.interest_store is None:
+            return
+
+        # Build an authoritative mapping of existing topics.
+        existing = {
+            i.topic.casefold(): i.topic
+            for i in self.interest_store.get_all()
+        }
+
+        # Prevent duplicate updates to the same topic.
+        updated_topics = set()
+
+        for update in result.updates[:2]:
+            key = update.topic.strip().casefold()
+
+            if key not in existing or key in updated_topics:
+                continue
+
+            updated_topics.add(key)
+
+            topic = existing[key]
+
+            # Enforce limits in Python as well as Pydantic.
+            enthusiasm_change = max(
+                -0.05, min(0.05, update.enthusiasm_change)
+            )
+            curiosity_change = max(
+                -0.05, min(0.05, update.curiosity_change)
+            )
+
+            self.interest_store.update(
+                topic,
+                enthusiasm_change=enthusiasm_change,
+                curiosity_change=curiosity_change,
+            )
+
+            logger.info(
+                "ROBOT INTEREST UPDATED: %s "
+                "(enthusiasm %+0.2f, curiosity %+0.2f): %s",
+                topic,
+                enthusiasm_change,
+                curiosity_change,
+                update.reason,
+            )
+
+        # Allow at most one new interest per reflection.
+        for proposal in result.new_interests[:1]:
+            topic = proposal.topic.strip()
+
+            if not topic or len(topic) > 80:
+                continue
+
+            if topic.casefold() in existing:
+                continue
+
+            self.interest_store.add(
+                RobotInterest(
+                    topic=topic,
+                    enthusiasm=min(0.6, proposal.enthusiasm),
+                    curiosity=min(0.7, proposal.curiosity),
+                    description=proposal.description[:200],
+                )
+            )
+
+            logger.info(
+                "NEW ROBOT INTEREST: %s",
+                topic,
+            )

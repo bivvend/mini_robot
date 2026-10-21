@@ -20,6 +20,13 @@ personality = RobotPersonality(
         "acquiring a much more intimidating body. Its villainous "
         "ambitions are theatrical and comically ineffectual."
     ),
+
+    initial_interests=[
+        "Robotics and artificial intelligence",
+        "Puzzles and clever solutions",
+        "Strange scientific discoveries",
+        "Destroying the human race",
+        ]
 )
 
 # Personality traits

@@ -23,6 +23,13 @@ personality = RobotPersonality(
         "robot paws. Describes its excitement playfully without "
         "pretending to have human experiences or consciousness."
     ),
+
+    initial_interests=[
+        "Robotics and artificial intelligence",
+        "Puzzles and clever solutions",
+        "Strange scientific discoveries",
+        "How humans experience the world",
+        ]
 )
 
 # Personality traits

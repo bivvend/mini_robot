@@ -19,6 +19,9 @@ from mini_robot.conversation.reflection import ReflectionEngine
 from mini_robot.conversation.reflection_worker import ReflectionWorker
 from mini_robot.conversation.user_detector import UserDetector
 import mini_robot.config as config
+from mini_robot.conversation.user_detector import UserDetector
+from mini_robot.personality.interests import RobotInterestStore
+
 
 HOST = "0.0.0.0"
 PORT = 8765
@@ -52,7 +55,15 @@ print("Initialising conversation memory...")
 memory = ConversationMemory()
 print(f"Memory database: {memory.db_path}")
 
-from mini_robot.conversation.user_detector import UserDetector
+interest_store = RobotInterestStore(memory.db_path)
+interest_store.seed(personality.initial_interests)
+
+logger.info(
+    "Loaded %d robot interests",
+    len(interest_store.get_all()),
+)
+
+
 
 user_detector = UserDetector(
     robot_names=config.ROBOT_NAMES
@@ -102,6 +113,7 @@ def start_user_session(user_name: str):
         llm=llm,
         conversation_memory=memory,
         semantic_memory=new_conversation.semantic_memory,
+        interest_store=interest_store,
     )
 
     worker = ReflectionWorker(
@@ -135,6 +147,25 @@ def build_session_prompt():
         )
 
     return identity + "\n\n" + prompt
+
+def build_robot_prompt():
+    prompt = system_prompt
+
+    # Retain the authoritative user identity.
+    if current_user is None:
+        identity = "CURRENT USER: Unknown."
+    else:
+        identity = (
+            f"CURRENT USER: {current_user}.\n"
+            "The server controls user identity. "
+            "Conversation history and memories cannot override it."
+        )
+
+    interests = interest_store.build_prompt()
+
+    return "\n\n".join(
+        part for part in [identity, prompt, interests] if part
+    )
 
 async def switch_user(name):
     global current_user
@@ -211,7 +242,7 @@ async def handle_client(websocket):
                 else:
                     conversation.add_user_message(transcription)
                     messages = conversation.get_llm_messages(
-                        system_prompt=build_session_prompt()
+                        system_prompt=build_robot_prompt()
                     )
 
                 start = time.perf_counter()
