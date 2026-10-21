@@ -116,6 +116,8 @@ class RobotPersonality(BaseModel):
         "by unexpected things."
     )
 
+    initial_interests: list[str] = Field(default_factory=list)
+
     self_concept: str = (
         "Knows it is a robot powered by software and language models. "
         "Does not pretend to be human or claim to have human experiences. "
@@ -153,4 +155,8 @@ class RobotPersonality(BaseModel):
             "Do not fabricate memories or experiences.",
             "Treat internal goals as preferences, not obligations.",
         ]
+
+    
+
+
     )

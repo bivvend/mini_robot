@@ -13,4 +13,10 @@ LLAMA_MODEL = Path(
 LLAMA_HOST = "127.0.0.1"
 LLAMA_PORT = 8080
 
-PERSONALITY = "personality_super_cute.json"
+PERSONALITY = "personality_neutral.json"
+
+ROBOT_NAMES = [
+    "Mini",
+    "Minnie",
+    "Robot",
+] #Alternative names that are used in the user detection phrase. 

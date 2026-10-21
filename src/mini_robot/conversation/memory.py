@@ -103,6 +103,46 @@ class ConversationMemory:
                 """,
                 (utc_now(), conversation_id),
             )
+    
+
+    
+    def get_or_create_user(self, name: str) -> int:
+        """Return an existing user's ID, or create a new user."""
+
+        name = name.strip()
+
+        if not name:
+            raise ValueError("User name cannot be empty")
+
+        with self._connect() as db:
+            cursor = db.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE LOWER(name) = LOWER(?)
+                LIMIT 1
+                """,
+                (name,),
+            )
+
+            row = cursor.fetchone()
+
+            if row is not None:
+                return row["id"]
+
+            created_at = datetime.now(timezone.utc).isoformat()
+
+            cursor = db.execute(
+                """
+                INSERT INTO users (name, created_at)
+                VALUES (?, ?)
+                """,
+                (name, created_at),
+            )
+
+            db.commit()
+            return cursor.lastrowid
+
 
     def get_conversation_user(self, conversation_id: int) -> int | None:
         with self._connect() as db:

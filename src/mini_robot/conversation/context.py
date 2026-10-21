@@ -37,8 +37,15 @@ class ContextManager:
             - self.safety_margin
         )
 
+
+
         if self.semantic_memory is not None:
-            memories = self.semantic_memory.get(limit=30)
+            user_id = self.memory.get_conversation_user(conversation_id)
+
+            memories = self.semantic_memory.get(
+                user_id=user_id,
+                limit=30,
+            )
 
             memory_lines = []
             used_tokens = 0

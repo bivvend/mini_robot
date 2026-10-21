@@ -29,6 +29,12 @@ class ReflectionEngine:
             conversation_id
         )
 
+        if user_id is None:
+            logger.info(
+                "Skipping reflection: no identified user"
+            )
+            return None
+
         if not history:
             return None
 
@@ -80,6 +86,43 @@ class ReflectionEngine:
                     "Use 3 for useful information, 4 for important information, "
                     "and 5 only for exceptionally significant information. "
                     "Do not use percentages or decimal scores."
+                    "Every memory must be a complete, meaningful sentence. "
+                    "Never store isolated names, single words, or vague fragments. "
+                    "Do not create memories that duplicate existing information, "
+                    "even if the wording differs. "
+                    "Only retain information likely to be useful in future conversations. "
+                    "Classify memories carefully. "
+                    "Use subject='user' for facts about the identified human. "
+                    "Use subject='robot' only for facts about the robot itself. "
+                    "Use subject='world' only for general knowledge independent "
+                    "of any particular user. "
+                    "Never store a person's name, interests, preferences or "
+                    "experiences as a robot or world memory. "
+                    "Never infer the robot's interests from the user's interests. "
+
+                    """
+                    IDENTITY AND MEMORY RULES:
+
+                    The current user's identity is managed externally by the server.
+
+                    Never create memories about:
+                    - The user's name or identity.
+                    - A change or correction to the user's identity.
+                    - Conflicting statements about who the user is.
+                    - The robot's guesses about the user's identity.
+
+                    Never treat statements made by the assistant as evidence
+                    of a user's personal facts, interests, or preferences.
+
+                    Only extract personal facts explicitly stated by the human user.
+
+                    If an identity statement appears in the conversation,
+                    ignore it for memory extraction.
+
+                    Do not infer additional preferences or personal details
+                    from the assistant's suggestions or questions.
+                    """
+
                 ),
             },
             {
