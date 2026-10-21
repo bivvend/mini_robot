@@ -230,8 +230,10 @@ async def handle_client(websocket):
                     continue
 
                 detected_user = user_detector.detect(transcription)
+                user_switched_message = ""
                 if detected_user is not None:
                     await switch_user(detected_user)
+                    user_switched_message = f"Switching User to {detected_user}. "
 
                 if conversation is None:
                     # Anonymous: no DB writes, no reflection, no personal retrieval.
@@ -259,7 +261,7 @@ async def handle_client(websocket):
 
                 await websocket.send(json.dumps({
                     "text": transcription,
-                    "response": response.speech,
+                    "response": user_switched_message + response.speech,
                     "emotion": response.emotion.value,
                     "gesture": response.gesture.value,
                     "personality": personality.name,
