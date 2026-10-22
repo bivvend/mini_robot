@@ -23,10 +23,14 @@ def handle_command(command):
     match command["name"]:
         case "volume_up":
             volume.up()
+            print(command["name"])
         case "volume_down":
             volume.down()
+            print(command["name"])
         case "mute":
             volume.mute()
+            print(command["name"])
+        
 
 def speak(tts: PiperTTS, text: str):
     """Generate speech with Piper and play it through the speakers."""

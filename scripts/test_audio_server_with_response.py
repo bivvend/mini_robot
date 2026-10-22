@@ -222,6 +222,7 @@ async def handle_client(websocket):
                         "type": "command",
                         "name": command.name,
                     }))
+                    logger.info(f"{command.name} command detected and sent.")
 
                 if not transcription:
                     await websocket.send(json.dumps({
