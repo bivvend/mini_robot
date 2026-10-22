@@ -229,6 +229,7 @@ async def handle_client(websocket):
                         "text": "", "response": "",
                         "user": current_user,
                         "memory_enabled": current_user is not None,
+                        "type": "message"
                     }))
                     continue
 

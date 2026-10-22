@@ -118,26 +118,26 @@ async def main():
 
                 response = json.loads(await websocket.recv())
 
-                if "error" in response:
-                    print(f"Server error: {response['error']}")
-                    continue
+                # Handle commands immediately, without TTS
+                if response.get("type") == "command":
+                    handle_command(response)
+                else:
+                    # Normal conversational response
+                    reply = response.get("response", "")
 
-                print(f"\nYou: {response.get('text', '')}")
+                    if reply:
+                        print(f"Mini: {reply}")
+                        print(
+                            f"Emotion: {response.get('emotion')}, "
+                            f"Gesture: {response.get('gesture')}"
+                        )
 
-                reply = response.get("response", "")
+                        speech_text = prepare_speech_text(reply)
 
-                if reply:
-                    print(f"Mini: {reply}")
-                    print(
-                        f"Emotion: {response.get('emotion')}, "
-                        f"Gesture: {response.get('gesture')}"
-                    )
-
-                    # Run TTS without blocking the asyncio event loop
-                    speech_text = prepare_speech_text(reply)
-
-                    if speech_text:
-                        await asyncio.to_thread(speak, tts, speech_text)
+                        if speech_text:
+                            await asyncio.to_thread(
+                                speak, tts, speech_text
+                            )
 
                 # Discard audio collected during response generation and playback
                 while not audio_queue.empty():
