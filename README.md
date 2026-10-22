@@ -180,7 +180,7 @@ Other personality files in `data/` include `personality_evil.json` and `personal
 Start llama.cpp separately with your downloaded model, for example:
 
 ```bash
-llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096
+llama-server -m /path/to/model.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096 --reasoning-format none
 ```
 
 The Python `LLMClient` defaults to `http://127.0.0.1:8080/v1`. The model must support the structured output requested by `RobotResponse`.
