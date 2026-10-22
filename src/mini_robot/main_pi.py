@@ -146,7 +146,7 @@ class MiniRobotPiClient:
 def default_voice_path() -> Path:
     # With src/mini_robot/main_pi.py, parents[2] is the repository root.
     project_root = Path(__file__).resolve().parents[2]
-    return project_root / "data" / "voices" / "en_GB-alan-medium.onnx"
+    return project_root / "data" / "voices" / "pda.onnx"
 
 
 def main():
