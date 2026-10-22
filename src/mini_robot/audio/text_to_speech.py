@@ -12,6 +12,9 @@ def prepare_speech_text(text: str) -> str:
     text = text.replace("~","")
     text = text.replace("*","")
     text = text.replace("#","")
+
+    #Add a brief pause at the end 
+    text = text + "..."
     return " ".join(text.split())
 
 class PiperTTS:
