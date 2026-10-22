@@ -8,6 +8,7 @@ from websockets.asyncio.client import connect
 
 from mini_robot.audio.voice_activity import VoiceActivityDetector
 from mini_robot.audio.text_to_speech import prepare_speech_text
+from mini_robot.audio.volume_control import VolumeController
 
 import io
 import wave
@@ -16,6 +17,16 @@ from pathlib import Path
 import soundfile as sf
 
 from mini_robot.audio.text_to_speech import PiperTTS
+volume = VolumeController()
+
+def handle_command(command):
+    match command["name"]:
+        case "volume_up":
+            volume.up()
+        case "volume_down":
+            volume.down()
+        case "mute":
+            volume.mute()
 
 def speak(tts: PiperTTS, text: str):
     """Generate speech with Piper and play it through the speakers."""
@@ -28,6 +39,8 @@ def speak(tts: PiperTTS, text: str):
     buffer.seek(0)
 
     audio, sample_rate = sf.read(buffer, dtype="float32")
+
+    audio = volume.apply(audio)
 
     print(f"Speaking ({len(audio) / sample_rate:.1f}s)")
 
@@ -43,6 +56,7 @@ async def main():
 
     vad = VoiceActivityDetector()
     audio_queue = queue.Queue(maxsize=100)
+
 
     project_root = Path(__file__).resolve().parent.parent
 

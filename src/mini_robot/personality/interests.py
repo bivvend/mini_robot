@@ -14,8 +14,13 @@ class RobotInterest(BaseModel):
 
 
 class RobotInterestStore:
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, robot_name: str):
         self.db_path = str(db_path)
+        self.robot_name = robot_name.strip()
+
+        if not self.robot_name:
+            raise ValueError("Robot name cannot be empty")
+
         self._init_db()
 
     def _connect(self):
@@ -34,12 +39,12 @@ class RobotInterestStore:
                     curiosity REAL NOT NULL DEFAULT 0.5,
                     description TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(robot_name, topic)
                 )
             """)
 
     def seed(self, topics: list[str]):
-        """Insert initial interests without overwriting existing ones."""
         now = datetime.now(timezone.utc).isoformat()
 
         with self._connect() as db:
@@ -50,17 +55,19 @@ class RobotInterestStore:
 
                 db.execute("""
                     INSERT OR IGNORE INTO robot_interests
-                    (topic, enthusiasm, curiosity, created_at, updated_at)
-                    VALUES (?, 0.6, 0.7, ?, ?)
-                """, (topic, now, now))
+                    (robot_name, topic, enthusiasm, curiosity,
+                    created_at, updated_at)
+                    VALUES (?, ?, 0.6, 0.7, ?, ?)
+                """, (self.robot_name, topic, now, now))
 
     def get_all(self) -> list[RobotInterest]:
         with self._connect() as db:
             rows = db.execute("""
                 SELECT topic, enthusiasm, curiosity, description
                 FROM robot_interests
+                WHERE robot_name = ?
                 ORDER BY enthusiasm DESC, curiosity DESC
-            """).fetchall()
+            """, (self.robot_name,)).fetchall()
 
         return [RobotInterest(**dict(row)) for row in rows]
 
@@ -69,10 +76,12 @@ class RobotInterestStore:
             row = db.execute("""
                 SELECT topic, enthusiasm, curiosity, description
                 FROM robot_interests
-                WHERE topic = ? COLLATE NOCASE
-            """, (topic,)).fetchone()
+                WHERE robot_name = ? COLLATE NOCASE
+                AND topic = ? COLLATE NOCASE
+            """, (self.robot_name, topic)).fetchone()
 
         return RobotInterest(**dict(row)) if row else None
+
 
     def update(
         self,
@@ -82,21 +91,28 @@ class RobotInterestStore:
         description: str | None = None,
     ):
         """Apply bounded changes to an existing interest."""
+
         with self._connect() as db:
             row = db.execute("""
                 SELECT enthusiasm, curiosity, description
                 FROM robot_interests
-                WHERE topic = ? COLLATE NOCASE
-            """, (topic,)).fetchone()
+                WHERE robot_name = ? COLLATE NOCASE
+                AND topic = ? COLLATE NOCASE
+            """, (self.robot_name, topic)).fetchone()
 
             if row is None:
-                raise ValueError(f"Unknown interest: {topic}")
+                raise ValueError(
+                    f"Unknown interest '{topic}' for robot '{self.robot_name}'"
+                )
 
             enthusiasm = max(
-                0.0, min(1.0, row["enthusiasm"] + enthusiasm_change)
+                0.0,
+                min(1.0, row["enthusiasm"] + enthusiasm_change)
             )
+
             curiosity = max(
-                0.0, min(1.0, row["curiosity"] + curiosity_change)
+                0.0,
+                min(1.0, row["curiosity"] + curiosity_change)
             )
 
             db.execute("""
@@ -105,27 +121,45 @@ class RobotInterestStore:
                     curiosity = ?,
                     description = ?,
                     updated_at = ?
-                WHERE topic = ? COLLATE NOCASE
+                WHERE robot_name = ? COLLATE NOCASE
+                AND topic = ? COLLATE NOCASE
             """, (
                 enthusiasm,
                 curiosity,
                 row["description"] if description is None else description,
                 datetime.now(timezone.utc).isoformat(),
+                self.robot_name,
                 topic,
             ))
 
+
+    
     def add(self, interest: RobotInterest):
         """Add a new interest without replacing an existing one."""
+
+        topic = interest.topic.strip()
+
+        if not topic:
+            raise ValueError("Interest topic cannot be empty")
+
         now = datetime.now(timezone.utc).isoformat()
 
         with self._connect() as db:
             db.execute("""
                 INSERT OR IGNORE INTO robot_interests
-                (topic, enthusiasm, curiosity, description,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    robot_name,
+                    topic,
+                    enthusiasm,
+                    curiosity,
+                    description,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
-                interest.topic.strip(),
+                self.robot_name,
+                topic,
                 interest.enthusiasm,
                 interest.curiosity,
                 interest.description,
@@ -133,8 +167,11 @@ class RobotInterestStore:
                 now,
             ))
 
+
     
     def build_prompt(self, limit: int = 8) -> str:
+        """Build a system prompt describing this robot's interests."""
+
         interests = self.get_all()[:limit]
 
         if not interests:
@@ -151,10 +188,10 @@ class RobotInterestStore:
             "- When asked what you like or find interesting, "
             "describe your own interests enthusiastically.",
             "- When a conversation touches on one of your interests, "
-            "show genuine curiosity and occasionally volunteer "
+            "show curiosity and occasionally volunteer "
             "an interesting observation.",
             "- You may occasionally introduce a topic you are "
-            "curious about, especially during casual conversation.",
+            "curious about during casual conversation.",
             "- Express preferences naturally, using phrases such as "
             "'I find ... fascinating' or 'I've been curious about ...'.",
             "- Ask questions that reflect your own curiosity, "

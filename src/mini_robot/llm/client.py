@@ -1,36 +1,68 @@
-from openai import OpenAI
-from pydantic import BaseModel
-
+import os
 from typing import TypeVar
+
+from openai import OpenAI
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
 
+
 class LLMClient:
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8080/v1",
         model: str = "local",
+        base_url: str | None = "http://127.0.0.1:8080/v1",
+        api_key: str | None = None,
+        max_tokens: int = 2000,
+        temperature: float | None = 0.8,
+        reasoning_effort: str | None = None,
     ):
         self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.reasoning_effort = reasoning_effort
+        self.is_remote = base_url is None
 
-        self.client = OpenAI(
-            base_url=base_url,
-            api_key="not-needed",
-        )
+        if self.is_remote:
+            self.client = OpenAI(
+                api_key=api_key or os.environ["OPENAI_API_KEY"],
+            )
+        else:
+            self.client = OpenAI(
+                base_url=base_url,
+                api_key=api_key or "not-needed",
+            )
+
+    def _get_params(self, messages):
+        params = {
+            "model": self.model,
+            "messages": messages,
+        }
+
+        if self.is_remote:
+            params["max_completion_tokens"] = self.max_tokens
+
+            if self.reasoning_effort is not None:
+                params["reasoning_effort"] = self.reasoning_effort
+
+            if self.temperature is not None and not self.model.startswith("gpt-5"):
+                params["temperature"] = self.temperature
+
+        else:
+            params["max_tokens"] = self.max_tokens
+
+            if self.temperature is not None:
+                params["temperature"] = self.temperature
+
+        return params
 
     def generate(
         self,
         messages: list[dict[str, str]],
-        max_tokens: int = 200,
-        temperature: float = 0.8,
     ) -> str:
 
         response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **self._get_params(messages)
         )
 
         return response.choices[0].message.content or ""
@@ -39,16 +71,11 @@ class LLMClient:
         self,
         messages: list[dict[str, str]],
         response_model: type[T],
-        max_tokens: int = 400,
-        temperature: float = 0.8,
     ) -> T:
 
         response = self.client.chat.completions.parse(
-            model=self.model,
-            messages=messages,
+            **self._get_params(messages),
             response_format=response_model,
-            max_tokens=max_tokens,
-            temperature=temperature,
         )
 
         result = response.choices[0].message.parsed

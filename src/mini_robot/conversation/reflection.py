@@ -147,8 +147,6 @@ class ReflectionEngine:
         result = self.llm.generate_structured(
             messages=messages,
             response_model=ReflectionResult,
-            max_tokens=2000,
-            temperature=0.3,
         )
 
         interest_result = self.reflect_interests(
@@ -289,8 +287,6 @@ class ReflectionEngine:
         return self.llm.generate_structured(
             messages=messages,
             response_model=InterestReflectionResult,
-            max_tokens=2000,
-            temperature=0.2,
         )
 
 

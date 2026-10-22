@@ -21,7 +21,7 @@ from mini_robot.conversation.user_detector import UserDetector
 import mini_robot.config as config
 from mini_robot.conversation.user_detector import UserDetector
 from mini_robot.personality.interests import RobotInterestStore
-
+from mini_robot.commands.router import detect_command
 
 HOST = "0.0.0.0"
 PORT = 8765
@@ -48,14 +48,29 @@ system_prompt = build_personality_prompt(personality)
 print(f"Personality: {personality.name}")
 
 print("Initialising LLM...")
-llm = LLMClient()
+
+llm = LLMClient(
+    model="Qwen3-4B-Instruct-2507",
+    max_tokens=400,
+    temperature=0.8,
+)
+
+remote_llm = LLMClient(
+    model="gpt-5-nano",
+    base_url=None,
+    max_tokens=2000,
+    temperature=None,
+    reasoning_effort="low",
+)
+
+
 llm_lock = threading.Lock()
 
 print("Initialising conversation memory...")
 memory = ConversationMemory()
 print(f"Memory database: {memory.db_path}")
 
-interest_store = RobotInterestStore(memory.db_path)
+interest_store = RobotInterestStore(memory.db_path, personality.name)
 interest_store.seed(personality.initial_interests)
 
 logger.info(
@@ -80,7 +95,6 @@ def generate_response(messages):
         return llm.generate_structured(
             messages=messages,
             response_model=RobotResponse,
-            max_tokens=400,
         )
 
 
@@ -110,7 +124,7 @@ def start_user_session(user_name: str):
         )
 
     engine = ReflectionEngine(
-        llm=llm,
+        llm=remote_llm,
         conversation_memory=memory,
         semantic_memory=new_conversation.semantic_memory,
         interest_store=interest_store,
@@ -127,26 +141,6 @@ def start_user_session(user_name: str):
 
     return new_conversation, worker
 
-
-def build_session_prompt():
-    prompt = system_prompt
-
-    if current_user is None:
-        identity = (
-            "CURRENT USER: Unknown.\n"
-            "Do not assume the user's identity."
-        )
-    else:
-        identity = (
-            f"CURRENT USER: {current_user}.\n"
-            "This identity has been established by the server.\n"
-            "It is authoritative and overrides conversation history "
-            "and stored memories.\n"
-            "Do not infer or change the user's identity from dialogue.\n"
-            "Only the server can switch users."
-        )
-
-    return identity + "\n\n" + prompt
 
 def build_robot_prompt():
     prompt = system_prompt
@@ -221,6 +215,14 @@ async def handle_client(websocket):
                 logger.info("Human: %s", transcription)
                 logger.info("Whisper: %.2fs", stt_time)
 
+                #Detect and react to command words
+                command = detect_command(transcription)
+                if command:
+                    await websocket.send(json.dumps({
+                        "type": "command",
+                        "name": command.name,
+                    }))
+
                 if not transcription:
                     await websocket.send(json.dumps({
                         "text": "", "response": "",
@@ -235,10 +237,12 @@ async def handle_client(websocket):
                     await switch_user(detected_user)
                     user_switched_message = f"Switching User to {detected_user}. "
 
+                logger.debug("Robot prompt:\n%s", build_robot_prompt())
+
                 if conversation is None:
                     # Anonymous: no DB writes, no reflection, no personal retrieval.
                     messages = [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": build_robot_prompt()},
                         {"role": "user", "content": transcription},
                     ]
                 else:
