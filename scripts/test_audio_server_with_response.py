@@ -212,71 +212,67 @@ async def handle_client(websocket):
                 start = time.perf_counter()
                 transcription = await asyncio.to_thread(stt.transcribe_pcm, message)
                 stt_time = time.perf_counter() - start
-                logger.info("Human: %s", transcription)
-                logger.info("Whisper: %.2fs", stt_time)
 
+                logger.info("Whisper: %.2fs", stt_time)
+                logger.info("Human: %r", transcription)
                 #Detect and react to command words
                 command = detect_command(transcription)
-                if command:
+                logger.info("Detected command: %r", command)
+                
+                if command is not None:
+                    logger.info("Executing command: %s", command.name)
+
                     await websocket.send(json.dumps({
                         "type": "command",
                         "name": command.name,
+                        "text": transcription,
                     }))
-                    logger.info(f"{command.name} command detected and sent.")
+                else:
+                    detected_user = user_detector.detect(transcription)
+                    user_switched_message = ""
+                    if detected_user is not None:
+                        await switch_user(detected_user)
+                        user_switched_message = f"Switching User to {detected_user}. "
 
-                if not transcription:
+                    logger.debug("Robot prompt:\n%s", build_robot_prompt())
+
+                    if conversation is None:
+                        # Anonymous: no DB writes, no reflection, no personal retrieval.
+                        messages = [
+                            {"role": "system", "content": build_robot_prompt()},
+                            {"role": "user", "content": transcription},
+                        ]
+                    else:
+                        conversation.add_user_message(transcription)
+                        messages = conversation.get_llm_messages(
+                            system_prompt=build_robot_prompt()
+                        )
+
+                    start = time.perf_counter()
+                    response = await asyncio.to_thread(generate_response, messages)
+                    llm_time = time.perf_counter() - start
+
+                    if conversation is not None:
+                        conversation.add_robot_response(response)
+
+                    logger.info("%s: %s", personality.name, response.speech)
+                    logger.info("Emotion: %s, Gesture: %s",
+                                response.emotion.value, response.gesture.value)
+                    logger.info("LLM: %.2fs", llm_time)
+
                     await websocket.send(json.dumps({
-                        "text": "", "response": "",
+                        "type": "response",
+                        "text": transcription,
+                        "response": user_switched_message + response.speech,
+                        "emotion": response.emotion.value,
+                        "gesture": response.gesture.value,
+                        "personality": personality.name,
                         "user": current_user,
                         "memory_enabled": current_user is not None,
-                        "type": "message"
+                        "stt_seconds": round(stt_time, 3),
+                        "llm_seconds": round(llm_time, 3),
+                        "processing_seconds": round(stt_time + llm_time, 3),
                     }))
-                    continue
-
-                detected_user = user_detector.detect(transcription)
-                user_switched_message = ""
-                if detected_user is not None:
-                    await switch_user(detected_user)
-                    user_switched_message = f"Switching User to {detected_user}. "
-
-                logger.debug("Robot prompt:\n%s", build_robot_prompt())
-
-                if conversation is None:
-                    # Anonymous: no DB writes, no reflection, no personal retrieval.
-                    messages = [
-                        {"role": "system", "content": build_robot_prompt()},
-                        {"role": "user", "content": transcription},
-                    ]
-                else:
-                    conversation.add_user_message(transcription)
-                    messages = conversation.get_llm_messages(
-                        system_prompt=build_robot_prompt()
-                    )
-
-                start = time.perf_counter()
-                response = await asyncio.to_thread(generate_response, messages)
-                llm_time = time.perf_counter() - start
-
-                if conversation is not None:
-                    conversation.add_robot_response(response)
-
-                logger.info("%s: %s", personality.name, response.speech)
-                logger.info("Emotion: %s, Gesture: %s",
-                            response.emotion.value, response.gesture.value)
-                logger.info("LLM: %.2fs", llm_time)
-
-                await websocket.send(json.dumps({
-                    "text": transcription,
-                    "response": user_switched_message + response.speech,
-                    "emotion": response.emotion.value,
-                    "gesture": response.gesture.value,
-                    "personality": personality.name,
-                    "user": current_user,
-                    "memory_enabled": current_user is not None,
-                    "stt_seconds": round(stt_time, 3),
-                    "llm_seconds": round(llm_time, 3),
-                    "processing_seconds": round(stt_time + llm_time, 3),
-                }))
     except Exception as exc:
         logger.exception("Connection error: %s", exc)
         try:
