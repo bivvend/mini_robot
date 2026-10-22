@@ -5,7 +5,7 @@ from dataclasses import dataclass
 @dataclass
 class RobotCommand:
     name: str
-    value: int | None = None
+    argument: str | None = None
 
 
 COMMANDS = {
@@ -20,13 +20,27 @@ COMMANDS = {
     "mute": [
         r"\b(?:mute|be quiet|stop talking)\b",
     ],
+    "web_search": [
+        r"\b(?:search for|search the web for|web lookup)\s+(.+)",
+    ],
 }
 
 
 def detect_command(text: str) -> RobotCommand | None:
     for name, patterns in COMMANDS.items():
         for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return RobotCommand(name=name)
+            match = re.search(pattern, text, re.IGNORECASE)
+
+            if match:
+                argument = (
+                    match.group(1).strip().rstrip(".?!")
+                    if match.lastindex
+                    else None
+                )
+
+                return RobotCommand(
+                    name=name,
+                    argument=argument,
+                )
 
     return None

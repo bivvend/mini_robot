@@ -10,7 +10,7 @@ from websockets.asyncio.server import serve
 
 from mini_robot.audio.speech_to_text import WhisperSTT
 from mini_robot.llm.client import LLMClient
-from mini_robot.llm.models import RobotResponse
+from mini_robot.llm.models import RobotResponse, Emotion, Gesture
 from mini_robot.personality.personality import RobotPersonality
 from mini_robot.personality.engine import build_personality_prompt
 from mini_robot.conversation.memory import ConversationMemory
@@ -56,9 +56,9 @@ llm = LLMClient(
 )
 
 remote_llm = LLMClient(
-    model="gpt-5-nano",
+    model="gpt-5.6-luna",
     base_url=None,
-    max_tokens=2000,
+    max_tokens=4000,
     temperature=None,
     reasoning_effort="low",
 )
@@ -92,11 +92,16 @@ request_lock = asyncio.Lock()
 
 def generate_response(messages):
     with llm_lock:
-        return llm.generate_structured(
-            messages=messages,
-            response_model=RobotResponse,
-        )
-
+        if config.USE_REMOTE_LLM_FOR_CONVERSATION:
+            return remote_llm.generate_structured(
+                messages=messages,
+                response_model=RobotResponse,
+            )
+        else:
+             return llm.generate_structured(
+                            messages=messages,
+                            response_model=RobotResponse,
+            )
 
 
 def start_user_session(user_name: str):
@@ -122,13 +127,20 @@ def start_user_session(user_name: str):
             f"Conversation user mismatch: expected {user_id}, "
             f"got {new_conversation.user_id}"
         )
-
-    engine = ReflectionEngine(
-        llm=remote_llm,
-        conversation_memory=memory,
-        semantic_memory=new_conversation.semantic_memory,
-        interest_store=interest_store,
-    )
+    if config.USE_REMOTE_LLM_FOR_CONVERSATION:
+        engine = ReflectionEngine(
+            llm=remote_llm,
+            conversation_memory=memory,
+            semantic_memory=new_conversation.semantic_memory,
+            interest_store=interest_store,
+        )
+    else:
+       engine = ReflectionEngine(
+                   llm=llm,
+                   conversation_memory=memory,
+                   semantic_memory=new_conversation.semantic_memory,
+                   interest_store=interest_store,
+        )
 
     worker = ReflectionWorker(
         engine=engine,
@@ -210,69 +222,118 @@ async def handle_client(websocket):
 
             async with request_lock:
                 start = time.perf_counter()
-                transcription = await asyncio.to_thread(stt.transcribe_pcm, message)
+
+
+                result = await asyncio.to_thread(
+                    stt.transcribe_pcm, message
+                )
+
+                transcription = result.text
+
+                logger.info(
+                    "Whisper: %r (logprob=%.2f, no_speech=%.2f)",
+                    transcription,
+                    result.avg_logprob,
+                    result.no_speech_prob,
+                )
+
                 stt_time = time.perf_counter() - start
 
                 logger.info("Whisper: %.2fs", stt_time)
                 logger.info("Human: %r", transcription)
-                #Detect and react to command words
-                command = detect_command(transcription)
-                logger.info("Detected command: %r", command)
-                
-                if command is not None:
-                    logger.info("Executing command: %s", command.name)
 
-                    await websocket.send(json.dumps({
-                        "type": "command",
-                        "name": command.name,
-                        "text": transcription,
-                    }))
-                else:
-                    detected_user = user_detector.detect(transcription)
-                    user_switched_message = ""
-                    if detected_user is not None:
-                        await switch_user(detected_user)
-                        user_switched_message = f"Switching User to {detected_user}. "
-
-                    logger.debug("Robot prompt:\n%s", build_robot_prompt())
-
-                    if conversation is None:
-                        # Anonymous: no DB writes, no reflection, no personal retrieval.
-                        messages = [
-                            {"role": "system", "content": build_robot_prompt()},
-                            {"role": "user", "content": transcription},
-                        ]
-                    else:
-                        conversation.add_user_message(transcription)
-                        messages = conversation.get_llm_messages(
-                            system_prompt=build_robot_prompt()
-                        )
-
-                    start = time.perf_counter()
-                    response = await asyncio.to_thread(generate_response, messages)
-                    llm_time = time.perf_counter() - start
-
-                    if conversation is not None:
-                        conversation.add_robot_response(response)
-
-                    logger.info("%s: %s", personality.name, response.speech)
-                    logger.info("Emotion: %s, Gesture: %s",
-                                response.emotion.value, response.gesture.value)
-                    logger.info("LLM: %.2fs", llm_time)
-
+                if result.avg_logprob < -0.8:
                     await websocket.send(json.dumps({
                         "type": "response",
                         "text": transcription,
-                        "response": user_switched_message + response.speech,
-                        "emotion": response.emotion.value,
-                        "gesture": response.gesture.value,
-                        "personality": personality.name,
-                        "user": current_user,
-                        "memory_enabled": current_user is not None,
-                        "stt_seconds": round(stt_time, 3),
-                        "llm_seconds": round(llm_time, 3),
-                        "processing_seconds": round(stt_time + llm_time, 3),
+                        "response": "Sorry, I didn't quite catch that. Could you say it again?",
+                        "emotion": "confused",
+                        "gesture": "tilt_head",
                     }))
+                else:
+                    #Detect and react to command words
+                    command = detect_command(transcription)
+                    logger.info("Detected command: %r", command)
+                    
+                    if command is not None:
+                        logger.info("Executing command: %s", command.name)
+
+                        if command.name == "web_search":
+                            answer = await asyncio.to_thread(
+                                remote_llm.web_search,
+                                command.argument,
+                            )
+
+                            response = RobotResponse(
+                                speech=answer,
+                                emotion= Emotion.CURIOUS,
+                                gesture= Gesture.NOD,
+                            )
+
+                            if conversation is not None:
+                                conversation.add_user_message(transcription)
+                                conversation.add_robot_response(response)
+
+                            await websocket.send(json.dumps({
+                                "type": "response",
+                                "text": transcription,
+                                "response": answer,
+                                "emotion": "curious",
+                                "gesture": "nod",
+                            }))
+
+                        else: 
+                            await websocket.send(json.dumps({
+                                "type": "command",
+                                "name": command.name,
+                                "text": transcription,
+                            }))
+                    else:
+                        detected_user = user_detector.detect(transcription)
+                        user_switched_message = ""
+                        if detected_user is not None:
+                            await switch_user(detected_user)
+                            user_switched_message = f"Switching User to {detected_user}. "
+
+                        logger.debug("Robot prompt:\n%s", build_robot_prompt())
+
+                        if conversation is None:
+                            # Anonymous: no DB writes, no reflection, no personal retrieval.
+                            messages = [
+                                {"role": "system", "content": build_robot_prompt()},
+                                {"role": "user", "content": transcription},
+                            ]
+                        else:
+                            conversation.add_user_message(transcription)
+                            messages = conversation.get_llm_messages(
+                                system_prompt=build_robot_prompt()
+                            )
+
+                        start = time.perf_counter()
+                        response = await asyncio.to_thread(generate_response, messages)
+                        llm_time = time.perf_counter() - start
+
+                        if conversation is not None:
+                            conversation.add_robot_response(response)
+
+                        logger.info("%s: %s", personality.name, response.speech)
+                        logger.info("Emotion: %s, Gesture: %s",
+                                    response.emotion.value, response.gesture.value)
+                        logger.info("LLM: %.2fs", llm_time)
+
+                        await websocket.send(json.dumps({
+                            "type": "response",
+                            "text": transcription,
+                            "response": user_switched_message + response.speech,
+                            "emotion": response.emotion.value,
+                            "gesture": response.gesture.value,
+                            "personality": personality.name,
+                            "user": current_user,
+                            "memory_enabled": current_user is not None,
+                            "stt_seconds": round(stt_time, 3),
+                            "llm_seconds": round(llm_time, 3),
+                            "processing_seconds": round(stt_time + llm_time, 3),
+                        }))
     except Exception as exc:
         logger.exception("Connection error: %s", exc)
         try:

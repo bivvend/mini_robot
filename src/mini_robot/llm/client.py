@@ -84,3 +84,16 @@ class LLMClient:
             raise ValueError("LLM returned no parsed response")
 
         return result
+    def web_search(self, question: str) -> str:
+        if not self.is_remote:
+            raise RuntimeError("Web search requires remote OpenAI")
+
+        response = self.client.responses.create(
+            model=self.model,
+            input=question,
+            tools=[{"type": "web_search"}],
+            tool_choice="required",
+            max_output_tokens=self.max_tokens,
+        )
+
+        return response.output_text

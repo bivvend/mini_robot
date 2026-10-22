@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+USE_REMOTE_LLM_FOR_CONVERSATION = True
+USE_REMOTE_LLM_FOR_REFLECTION = True
+
 LLAMA_SERVER = Path(
     r"D:\repos2\llama.cpp\build-vulkan\bin\llama-server.exe"
 )
